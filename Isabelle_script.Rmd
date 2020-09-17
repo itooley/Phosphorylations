@@ -1,0 +1,191 @@
+---
+title: "Isabelle"
+author: "Isabelle Tooley"
+date: "9/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(DataExplorer)
+library(corrplot)
+library(ggplot2)
+library(caret)
+library(DMwR)
+library(ROSE)
+library(dummies)
+```
+
+READ IN DATA
+```{r}
+cancer_test <- read.csv("test.csv")
+cancer_train <- read.csv("train.csv")
+
+#names(cancer_test)[names(cancer_test) == "Id"] <- "SiteNum"
+cancer <- bind_rows(train = cancer_train, test = cancer_test, .id = "Set") %>% mutate(Response = as.factor(Response))
+```
+
+
+
+EDA
+
+1. Summary
+```{r}
+# summary of data, look for missing values
+summary(cancer)
+```
+
+2. Missing values exploration
+```{r}
+# plot of proportions of missing values
+plot_missing(cancer)
+```
+
+```{r}
+nrow(cancer %>% filter(is.na(Consensus) & is.na(PSSM)))
+```
+Consensus and PSSM each have 870 missing values, and if you subset the data to include rows where both are missing, you get 870 observations.
+*Consensus and PSSM are always missing together*
+This makes sense because Consensus is built using PSSM, ANN, SVM
+
+Why are some PSSM measurements missing? Any correlation to whether or not it's a cancer site?
+```{r}
+mean(cancer_train %>% filter(is.na(PSSM)) %>% pull(Response))
+mean(is.na(cancer_train %>% filter(Response == 1) %>% pull(PSSM)))
+```
+
+3. Correlations
+```{r}
+# Which variables are related to each other?
+plot_correlation(cancer, type="continuous", 
+                 cor_args=list(use="pairwise.complete.obs"))
+```
+
+```{r}
+quant_vars <- cancer %>%
+  select(Iupred.score, ANN, PSSM, SVM, Consensus, normalization) %>%
+  drop_na()
+
+corrplot(cor(quant_vars), method = "shade", type = "upper", diag = FALSE, addCoef.col = "black", number.cex = .7)
+```
+
+
+
+DATA CLEANING
+
+1. Create a new variable that acts as a marker for whether or not PSSM was missing. This might or might not be useful.
+```{r}
+cancer <- cancer %>%
+  mutate(missing_PSSM = if_else(is.na(PSSM), 1, 0))
+```
+
+2. Imputation of missing PSSM values with SVM* (very strong linear relationship). 
+```{r}
+# scatterplot of SVM vs PSSM to check linearity
+ggplot(data = cancer, aes(SVM, PSSM)) +
+  geom_point() +
+  geom_smooth(se = FALSE)
+
+# Stochastic linear regression imputation for PSSM
+pssm_lm <- lm(PSSM ~ SVM, data = cancer)
+pssm_preds <- predict(pssm_lm, newdata = (cancer %>% filter(is.na(PSSM)))) + 
+              rnorm(sum(is.na(cancer$PSSM)), 0, sigma(pssm_lm))
+
+cancer <- cancer %>%
+  mutate(PSSM = round(replace(PSSM, is.na(PSSM), pssm_preds), digits = 3))
+
+rm(list = "pssm_lm")
+
+ggplot(data = cancer, aes(SVM, PSSM)) +
+  geom_point(aes(color = as.factor(missing_PSSM)))
+```
+
+3. Imputation of Consensus variable (average of ANN, SVM, PSSM values)
+```{r}
+cancer <- cancer %>%
+  mutate(Consensus = round(replace(Consensus, is.na(Consensus), 
+                                   rowMeans(cancer[is.na(Consensus),4:6])), digits = 3))
+```
+
+4. Make dummy variables
+```{r}
+dummies <- dummyVars(Response ~ .-Set, data = cancer)
+cancer_dummies <- data.frame(predict(dummies, newdata = cancer)) %>%
+  bind_cols(., cancer %>% select(Set, Response))
+```
+
+
+5. Check correlations and missing values again
+```{r}
+plot_missing(cancer_dummies)
+```
+
+```{r}
+# drop ANN, PSSM, SVM because of the direct collinearity to Consensus
+# if Consensus was dropped, there's still collinearity between all three, so proceed with Consensus
+cancer <- cancer_dummies %>%
+  select(-c(ANN, PSSM, SVM))
+
+cancer_train <- cancer %>%
+  filter(Set == "train") %>%
+  select(-Set)
+
+cancer_test <- cancer %>%
+  filter(Set == "test") %>%
+  select(-c(Set, Response))
+
+plot_correlation(cancer, type="continuous", 
+                 cor_args=list(use="pairwise.complete.obs"))
+```
+
+5. Address Class Imbalance
+```{r}
+table(cancer_train$Response)
+```
+
+To "fix" class imbalances, we can...
+- down sample so that the frequency of the majority class (0) matches the frequency of minority (1)
+- up sample with replacement so that the number of 1s matches the number of 0s
+- do a combo method which down samples the majority class and simultaneously creates new data points in the minority class
+
+```{r}
+# classProbs TRUE or FALSE?
+down_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3,
+                          classProbs = TRUE, sampling = "down")
+
+down_logit <- train(Response ~ .,  data = (cancer_train %>% select(-SiteNum)),
+                    trControl = down_ctrl, metric = "Accuracy", 
+                    method = "glm", family = "binomial")
+
+down_logit
+```
+
+```{r}
+up_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3,
+                          classProbs = TRUE, sampling = "down")
+
+up_logit <- train(Response ~ .,  data = (cancer_train %>% select(-SiteNum)),
+                  metric = "Accuracy", method = "glm", family = "binomial")
+
+up_logit
+```
+
+```{r}
+rose_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3,
+                          classProbs = TRUE, sampling = "rose")
+
+rose_logit <- train(Response ~ .,  data = (cancer_train %>% select(-SiteNum)), 
+                    metric = "Accuracy", method = "glm", family = "binomial")
+
+rose_logit
+```
+
+
+MODELING
+
+1. Logistic regression
+```{r}
+
+```
+
