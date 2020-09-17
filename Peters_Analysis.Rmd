@@ -35,6 +35,13 @@ plot_correlation(phil, type="continuous",
                  cor_args=list(use="pairwise.complete.obs"))
 ```
 
+
+```{r}
+ggplot(data = phil, mapping=aes(x=SVM, PSSM)) + geom_point() + ggtitle("SVM vs PSSM")
+ggplot(data = phil, mapping=aes(x=ANN, PSSM)) + geom_point() + ggtitle("ANN vs PSSM")
+```
+
+
 ### Stochastic Regression imputation for PSSM
 ```{r}
 summary(lmobj <- lm(PSSM~SVM+ANN, data = phil))
@@ -47,5 +54,10 @@ phil <- phil %>%
 
 sum(is.na(phil$PSSM))
 
+```
+
+```{r}
+ggplot(data = phil, mapping=aes(x=SVM, PSSM)) + geom_point() + ggtitle("SVM vs PSSM")
+ggplot(data = phil, mapping=aes(x=ANN, PSSM)) + geom_point() + ggtitle("ANN vs PSSM")
 ```
 
