@@ -15,6 +15,7 @@ library(caret)
 library(DMwR)
 library(ROSE)
 library(dummies)
+library(MLmetrics)
 ```
 
 READ IN DATA
@@ -115,7 +116,6 @@ cancer_dummies <- data.frame(predict(dummies, newdata = cancer)) %>%
   bind_cols(., cancer %>% select(Set, Response))
 ```
 
-
 5. Check correlations and missing values again
 ```{r}
 plot_missing(cancer_dummies)
@@ -139,7 +139,11 @@ plot_correlation(cancer, type="continuous",
                  cor_args=list(use="pairwise.complete.obs"))
 ```
 
-5. Address Class Imbalance
+
+
+MODELING
+
+1. Class imbalance!
 ```{r}
 table(cancer_train$Response)
 ```
@@ -150,42 +154,103 @@ To "fix" class imbalances, we can...
 - do a combo method which down samples the majority class and simultaneously creates new data points in the minority class
 
 ```{r}
-# classProbs TRUE or FALSE?
-down_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3,
-                          classProbs = TRUE, sampling = "down")
-
-down_logit <- train(Response ~ .,  data = (cancer_train %>% select(-SiteNum)),
-                    trControl = down_ctrl, metric = "Accuracy", 
-                    method = "glm", family = "binomial")
-
-down_logit
-```
-
-```{r}
-up_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3,
-                          classProbs = TRUE, sampling = "down")
-
-up_logit <- train(Response ~ .,  data = (cancer_train %>% select(-SiteNum)),
-                  metric = "Accuracy", method = "glm", family = "binomial")
-
-up_logit
-```
-
-```{r}
-rose_ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3,
-                          classProbs = TRUE, sampling = "rose")
-
-rose_logit <- train(Response ~ .,  data = (cancer_train %>% select(-SiteNum)), 
-                    metric = "Accuracy", method = "glm", family = "binomial")
-
-rose_logit
+# With classProbs = TRUE, the response variable cannot be 1 and 0
+cancer_train <- cancer_train %>% 
+  mutate(Response = ifelse(Response == 1, "Yes", "No"))
 ```
 
 
-MODELING
-
-1. Logistic regression
 ```{r}
+# gbm_grid <- expand.grid("n.trees" = 1000, 
+#                         "interaction.depth" = seq(1, 5, 2), 
+#                         "shrinkage" = seq(.005, .075, .005),
+#                         "n.minobsinnode" = c(10, 20))
 
+gbm_grid <- expand.grid("n.trees" = 1000, 
+                        "interaction.depth" = 1, 
+                        "shrinkage" = .005,
+                        "n.minobsinnode" = 10)
+```
+
+
+```{r}
+down_ctrl <- trainControl(method = "repeatedcv", 
+                          number = 10, 
+                          repeats = 2,
+                          summaryFunction = prSummary,
+                          classProbs = TRUE, 
+                          sampling = "down")
+
+down_gbm <- train(Response ~ .,  
+                  data = (cancer_train %>% select(-SiteNum)),
+                  method = "gbm",
+                  tuneGrid = gbm_grid,
+                  trControl = down_ctrl, 
+                  preProcess = c("center", "scale"),
+                  metric = "F",
+                  verbose = FALSE)
+
+down_gbm
+```
+
+```{r}
+up_ctrl <- trainControl(method = "repeatedcv", 
+                        number = 10, 
+                        repeats = 3,
+                        summaryFunction = prSummary,
+                        classProbs = TRUE, 
+                        sampling = "up")
+
+up_gbm <- train(Response ~ .,  
+                data = (cancer_train %>% select(-SiteNum)),
+                method = "gbm",
+                tuneGrid = gbm_grid,
+                trControl = up_ctrl, 
+                preProcess = c("center", "scale"),
+                metric = "F",
+                verbose = FALSE)
+
+up_gbm
+```
+
+```{r}
+rose_ctrl <- trainControl(method = "repeatedcv", 
+                          number = 10, 
+                          repeats = 3,
+                          summaryFunction = prSummary,
+                          classProbs = TRUE, 
+                          sampling = "rose")
+
+rose_gbm <- train(Response ~ .,  
+                    data = (cancer_train %>% select(-SiteNum)),
+                    method = "gbm",
+                    tuneGrid = gbm_grid,
+                    trControl = rose_ctrl, 
+                    preProcess = c("center", "scale"),
+                    metric = "F",
+                    verbose = FALSE)
+
+rose_gbm
+```
+
+
+```{r}
+smote_ctrl <- trainControl(method = "repeatedcv", 
+                          number = 10, 
+                          repeats = 3,
+                          summaryFunction = prSummary,
+                          classProbs = TRUE, 
+                          sampling = "smote")
+
+smote_gbm <- train(Response ~ .,  
+                    data = (cancer_train %>% select(-SiteNum)),
+                    method = "gbm",
+                    tuneGrid = gbm_grid,
+                    trControl = smote_ctrl, 
+                    preProcess = c("center", "scale"),
+                    metric = "F",
+                    verbose = FALSE)
+
+smote_gbm
 ```
 
