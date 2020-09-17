@@ -49,6 +49,9 @@ summary(lmobj <- lm(PSSM~SVM+ANN, data = phil))
 PSSM.preds <- (predict(lmobj, newdata=(phil %>% filter(is.na(PSSM))))+
                   rnorm(sum(is.na(phil$PSSM)), 0, sigma(lmobj)))
 
+phil_temp <- phil[is.na(phil$PSSM), ]
+phil_temp[is.na(phil_temp$PSSM), ]$PSSM <- PSSM.preds
+
 phil <- phil %>%
   mutate(PSSM=replace(PSSM, is.na(PSSM), PSSM.preds))
 
@@ -57,7 +60,16 @@ sum(is.na(phil$PSSM))
 ```
 
 ```{r}
-ggplot(data = phil, mapping=aes(x=SVM, PSSM)) + geom_point() + ggtitle("SVM vs PSSM")
-ggplot(data = phil, mapping=aes(x=ANN, PSSM)) + geom_point() + ggtitle("ANN vs PSSM")
+ggplot(data = phil, mapping=aes(x=SVM, PSSM, color = (is.na(phil$Consensus)))) + geom_point() + ggtitle("SVM vs PSSM")
+ggplot(data = phil, mapping=aes(x=ANN, PSSM, color = (is.na(phil$Consensus)))) + geom_point() + ggtitle("ANN vs PSSM")
+
+plot_correlation(phil, type="continuous", 
+                 cor_args=list(use="pairwise.complete.obs"))
+```
+
+
+
+
+```{r}
 ```
 
