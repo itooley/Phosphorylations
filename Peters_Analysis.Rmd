@@ -1,0 +1,37 @@
+---
+title: "Train"
+author: "Peters"
+date: "9/16/2020"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(DataExplorer)
+library(caret)
+
+train <- read_csv("train.csv")
+test <- read_csv("test.csv")
+
+(phil <- bind_rows(train = train, test = test, .id="Set"))
+```
+
+```{r}
+head(phil)
+```
+
+```{r}
+sum(is.na(phil$PSSM))
+sum(is.na(phil$Consensus))
+
+phil[is.na(phil$PSSM), ]
+phil[!is.na(phil$PSSM), ]
+```
+
+```{r}
+summary(phil)
+
+plot_correlation(phil, type="continuous", 
+                 cor_args=list(use="pairwise.complete.obs"))
+```
+
