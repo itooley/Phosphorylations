@@ -35,3 +35,17 @@ plot_correlation(phil, type="continuous",
                  cor_args=list(use="pairwise.complete.obs"))
 ```
 
+### Stochastic Regression imputation for PSSM
+```{r}
+summary(lmobj <- lm(PSSM~SVM+ANN, data = phil))
+
+PSSM.preds <- (predict(lmobj, newdata=(phil %>% filter(is.na(PSSM))))+
+                  rnorm(sum(is.na(phil$PSSM)), 0, sigma(lmobj)))
+
+phil <- phil %>%
+  mutate(PSSM=replace(PSSM, is.na(PSSM), PSSM.preds))
+
+sum(is.na(phil$PSSM))
+
+```
+
