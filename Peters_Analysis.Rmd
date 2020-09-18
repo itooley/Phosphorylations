@@ -4,6 +4,10 @@ author: "Peters"
 date: "9/16/2020"
 output: html_document
 ---
+14-3-3 is a cancer causing protein that interacts with various other proteins in the body, caused by a protein modification called  "phosphorylation", which increases tumor growth. This analysis will help us find find these interaction points that may be susceptible to this protein modification.
+
+>Our hypothesis is that 14-3-3-binding phosphorylation sites 1) occur in regions of high "intrinsic disorder" (you can think of disordered regions of proteins as more floppy and loose than structured regions, which tend to be rigid and well ordered); 2) occur within specific amino acid sequences; and 3) tend to be more frequently identified in unbiased mass spectrometry studies. So we'd predict that 14-3-3 binding phosphorylations, on average, will score higher for these features than the non-binding phopshorylations. -Kaggle Overview
+
 
 ```{r}
 library(tidyverse)
@@ -13,63 +17,131 @@ library(caret)
 train <- read_csv("train.csv")
 test <- read_csv("test.csv")
 
-(phil <- bind_rows(train = train, test = test, .id="Set"))
+#combining our data frames to get consistent imputation
+phil <- bind_rows(train = train, test = test, .id="Set")
 ```
 
+Our response variable is whether or not this specific amino acid strand was a binding locations (marked with a 1) or not (marked as 0). Since we are dealing with a classification problem, we want to ensure that our response variable is listed as a factor so we can plug it into our model.
+
 ```{r}
+phil$Response <- phil$Response %>% as.factor
+phil$SiteNum <- phil$SiteNum %>% as.factor
 head(phil)
+
+unique(phil$Amino.Acid)
 ```
 
-```{r}
-sum(is.na(phil$PSSM))
-sum(is.na(phil$Consensus))
+## Data Visualizaton
 
-phil[is.na(phil$PSSM), ]
-phil[!is.na(phil$PSSM), ]
-```
+First we want to get to know our data, like if its numeric or categorical, and see the overall relationship our variables have with one another.
 
 ```{r}
 summary(phil)
 
 plot_correlation(phil, type="continuous", 
                  cor_args=list(use="pairwise.complete.obs"))
+
+ggplot(train, mapping=aes(x=Response)) + geom_histogram(stat="count") + ggtitle("Distribution of Response Variable in 'train' Set") + theme_classic()
+
+cat("\n\n")
+
+sapply(phil, function(x) sum(is.na(x)))
 ```
 
+So we see that out of training set, there aren't that many binding sites within our data set, this will lead us to discuss the class imbalance problem. Since binding sites are so infrequent, we will need to account for they by maybe using a cost sensitive model later on.
+
+But for now we want talk about the high colinearity that exists in our data set. our **SVM**, **PSSM**, and **ANN** variable are various protein scores based on different sequencing while the **consensus** is a consensus amino acid score based on those ANN-SVM scores. Our PSSM and consensus are the only variables that has missing values, so we plan on filling in those missing values and then decided then what we can do to handle this issue.
+
+## Feature Engineering
+
+### Handling Missing values
+so what we noted before was that we only had missing values from our PSSM and consensus. As it turns out, they all exit in the same 870 rows (response is just the missing response from our test set.
+```{r}
+head(phil[!is.na(phil$PSSM), ], 5)
+```
+Since out three amino acids have a such a high colinearity between them, we want to be able to use regression imputation to fill those missing values from PSSM. Below we want to visualize this relationship to ensure that they are linear.
 
 ```{r}
-ggplot(data = phil, mapping=aes(x=SVM, PSSM)) + geom_point() + ggtitle("SVM vs PSSM")
-ggplot(data = phil, mapping=aes(x=ANN, PSSM)) + geom_point() + ggtitle("ANN vs PSSM")
+ggplot(data = phil, mapping=aes(x=SVM, PSSM)) + geom_point() + ggtitle("SVM vs PSSM") + theme_classic()
+ggplot(data = phil, mapping=aes(x=ANN, PSSM)) + geom_point() + ggtitle("ANN vs PSSM") + theme_classic()
+
+plotly::plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers")
 ```
 
 
 ### Stochastic Regression imputation for PSSM
+
 ```{r}
 summary(lmobj <- lm(PSSM~SVM+ANN, data = phil))
 
 PSSM.preds <- (predict(lmobj, newdata=(phil %>% filter(is.na(PSSM))))+
                   rnorm(sum(is.na(phil$PSSM)), 0, sigma(lmobj)))
 
-phil_temp <- phil[is.na(phil$PSSM), ]
-phil_temp[is.na(phil_temp$PSSM), ]$PSSM <- PSSM.preds
-
 phil <- phil %>%
   mutate(PSSM=replace(PSSM, is.na(PSSM), PSSM.preds))
 
-sum(is.na(phil$PSSM))
-
+cat("\nJust to ensure that we filled them all in:\n sum of NA's is ", sum(is.na(phil$PSSM)))
 ```
 
+So we ran out linear model, and found the model to have an $R^2$ of $0.8546$ with a $p-value < 2.2e-16$, giving me comfort in fill in in our NA's. Below I visualize again and highlight all of the values that were filled in.
+
 ```{r}
-ggplot(data = phil, mapping=aes(x=SVM, PSSM, color = (is.na(phil$Consensus)))) + geom_point() + ggtitle("SVM vs PSSM")
-ggplot(data = phil, mapping=aes(x=ANN, PSSM, color = (is.na(phil$Consensus)))) + geom_point() + ggtitle("ANN vs PSSM")
+ggplot(data = phil, mapping=aes(x=SVM, PSSM, color = (is.na(phil$Consensus)))) + geom_point() + labs(color = "Imputated Values") + ggtitle("SVM vs PSSM after Imputation") + theme_classic()
+
+
+ggplot(data = phil, mapping=aes(x=ANN, PSSM, color = (is.na(phil$Consensus)))) + geom_point() + labs(color = "Imputated Values")  + ggtitle("ANN vs PSSM after Imputation") + theme_classic()
+
+plotly::plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers", color = (is.na(phil$Consensus)))
 
 plot_correlation(phil, type="continuous", 
                  cor_args=list(use="pairwise.complete.obs"))
 ```
 
 
-
+Now we will impputae the consensus score with a regression model.
 
 ```{r}
+summary(lmobj <- lm(Consensus~PSSM+SVM+ANN, data = phil))
+
+Consensus.preds <- (predict(lmobj, newdata=(phil %>% filter(is.na(Consensus))))+
+                  rnorm(sum(is.na(phil$Consensus)), 0, sigma(lmobj)))
+
+
+phil <- phil %>%
+  mutate(Consensus=replace(Consensus, is.na(Consensus), Consensus.preds))
+
+cat("\nJust to ensure that we filled them all in:\n sum of NA's is ", sum(is.na(phil$Consensus)))
+
+ggplot(data = phil, mapping=aes(x=Consensus)) + geom_histogram(bins = 15) + ggtitle("Distribution of Consensus scores") + theme_classic()
+
+```
+
+
+
+### One-Hot Encoding
+
+I want to create dummy variables for our Amino Acid type. Here I will also create different data frame with either consensus or the acid strands (PSSM, ANN, SVM). We will most likely only use the consensus coded data frames, but I guess it doesnt hurt to have the others for now i we want to test them.
+
+```{r}
+#Dummary Vars
+dumPhil <- dummyVars(Response~.-Set, data=phil)
+Phil_pro <- predict(dumPhil, newdata = phil) %>% as.data.frame() %>% bind_cols(., phil %>% select(-Set, -Response, -Consensus))
+Phil_con <- predict(dumPhil, newdata = phil) %>% as.data.frame() %>% bind_cols(., phil %>% select(-Set, -Response, -PSSM, -ANN, -SVM))
+
+#PreProcessing
+pcTranss <- preProcess(x=phil %>% select(-Response, -Consensus), method = "pca")
+pc_pro <- predict(pcTranss, newdata = phil)
+pcTranss <- preProcess(x=phil %>% select(-Response, -PSSM, -ANN, -SVM), method = "pca")
+pc_con <- predict(pcTranss, newdata = phil)
+
+
+```
+
+```{r}
+plot_correlation(pc_con, type="continuous", 
+                 cor_args=list(use="pairwise.complete.obs"))
+
+plot_correlation(pc_pro, type="continuous", 
+                 cor_args=list(use="pairwise.complete.obs"))
 ```
 
