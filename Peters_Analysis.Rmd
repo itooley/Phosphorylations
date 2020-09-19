@@ -112,21 +112,14 @@ ggplot(data = phil, mapping=aes(x = Response, y =Consensus)) + geom_boxplot() + 
 Now we will impputae the consensus score with a regression model.
 
 ```{r}
-summary(lmobj <- lm(Consensus~PSSM+SVM+ANN, data = phil))
-
-Consensus.preds <- (predict(lmobj, newdata=(phil %>% filter(is.na(Consensus))))+
-                  rnorm(sum(is.na(phil$Consensus)), 0, sigma(lmobj)))
-
-
-phil <- phil %>%
-  mutate(Consensus=replace(Consensus, is.na(Consensus), Consensus.preds))
+phil$Consensus <- (phil$PSSM + phil$SVM + phil$ANN) / 3
 
 cat("\nJust to ensure that we filled them all in:\n sum of NA's is ", sum(is.na(phil$Consensus)))
 
 ggplot(data = phil, mapping=aes(x=Consensus)) + geom_histogram(bins = 15) + ggtitle("Distribution of Consensus scores") + theme_classic()
+plotly::plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers", color = phil$Response)
 
 ```
-
 
 
 ### One-Hot Encoding
@@ -155,4 +148,85 @@ plot_correlation(pc_con, type="continuous",
 plot_correlation(pc_pro, type="continuous", 
                  cor_args=list(use="pairwise.complete.obs"))
 ```
+
+## Model Fitting
+
+```{r}
+phil$Response <- ifelse(phil$Response == 0 , "no", "yes")
+phil$Response <- as.factor(phil$Response)
+phil.train <- phil %>% filter(!is.na(Response)) %>% select(-Set)
+phil.test<- phil %>% filter(is.na(Response)) %>% select(-Set)
+```
+
+
+```{r}
+tune.grid <- expand.grid(trials  = seq(5, 10, 1),
+                        model  = "rules",
+                        winnow  = FALSE,
+                        cost  = seq(.5, 2, .5))
+
+tr.grid <-trainControl(method="repeatedcv",
+                                       classProbs = TRUE,
+                                       number=10,
+                                       repeats = 5,
+                                       summaryFunction = prSummary)
+
+boost <- train(form=Response~., 
+              data=(phil.train %>% select(-SiteNum)),
+              method = "C5.0Cost",
+              trControl=tr.grid,
+              preProc = c("center", "scale", "pca"),
+              metric = "F",
+              tuneGrid = tune.grid,
+              verbose = FALSE
+              )
+beepr::beep()
+
+plot(boost) 
+boost$bestTune
+boost$results
+```
+
+```{r}
+phil.preds <- data.frame(Id=phil.test$SiteNum, Predicted = predict(boost, newdata = phil.test))
+
+write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive.csv")
+```
+
+
+
+```{r}
+tune.grid <- expand.grid(cost = seq(0, .05, .005),
+                         weight = 2)
+
+tr.grid <-trainControl(method="repeatedcv",
+                                       classProbs = TRUE,
+                                       number=10,
+                                       repeats = 5,
+                                       summaryFunction = prSummary)
+
+boost1 <- train(form=Response~., 
+              data=(phil.train %>% select(-SiteNum)),
+              method = "svmLinearWeights",
+              trControl=tr.grid,
+              preProc = c("center", "scale", "pca"),
+              metric = "F",
+              tuneGrid = tune.grid,
+              verbose = FALSE
+              )
+beepr::beep()
+
+plot(boost) 
+boost$bestTune
+boost$results
+```
+
+
+
+```{r}
+phil.preds <- data.frame(Id=phil.test$SiteNum, Predicted = predict(boost1, newdata = phil.test))
+
+write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive1.csv")
+```
+
 
