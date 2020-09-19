@@ -243,6 +243,23 @@ boost1$bestTune
 boost1$results
 ```
 
+```{r}
+phil.preds <- data.frame(Id=phil.train$SiteNum, Predicted = predict(boost1, newdata = phil.train))
+
+f_df1 <- as.data.frame(cbind(y_true = phil.train$Response, Id = phil.train$SiteNum))
+
+
+f_df2 <- phil.preds
+f_df2$Id <- as.integer(f_df2$Id)
+f_df2$Predicted <- as.integer(f_df2$Predicted)
+
+f_df1 <- f_df1 %>% left_join(f_df2)
+
+
+
+F1_Score(f_df1$y_true, f_df1$Predicted, positive = 1)
+```
+
 
 
 ```{r}
