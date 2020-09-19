@@ -13,6 +13,7 @@ output: html_document
 library(tidyverse)
 library(DataExplorer)
 library(caret)
+library(MLmetrics)
 
 train <- read_csv("train.csv")
 test <- read_csv("test.csv")
@@ -187,8 +188,29 @@ boost$bestTune
 boost$results
 ```
 
+
+```{r}
+phil.preds <- data.frame(Id=phil.train$SiteNum, Predicted = predict(boost, newdata = phil.train))
+
+f_df1 <- as.data.frame(cbind(y_true = phil.train$Response, Id = phil.train$SiteNum))
+
+
+f_df2 <- phil.preds
+f_df2$Id <- as.integer(f_df2$Id)
+f_df2$Predicted <- as.integer(f_df2$Predicted)
+
+f_df1 <- f_df1 %>% left_join(f_df2)
+
+
+
+F1_Score(f_df1$y_true, f_df1$Predicted, positive = 1)
+```
+
+
 ```{r}
 phil.preds <- data.frame(Id=phil.test$SiteNum, Predicted = predict(boost, newdata = phil.test))
+
+phil.preds$Predicted <- ifelse(phil.preds$Predicted == "no", FALSE, TRUE)
 
 write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive.csv")
 ```
@@ -196,8 +218,8 @@ write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive.csv")
 
 
 ```{r}
-tune.grid <- expand.grid(cost = seq(0, .05, .005),
-                         weight = 2)
+tune.grid <- expand.grid(cost = seq(.5, 1.5, .05),
+                         weight = 3)
 
 tr.grid <-trainControl(method="repeatedcv",
                                        classProbs = TRUE,
@@ -216,15 +238,17 @@ boost1 <- train(form=Response~.,
               )
 beepr::beep()
 
-plot(boost) 
-boost$bestTune
-boost$results
+plot(boost1) 
+boost1$bestTune
+boost1$results
 ```
 
 
 
 ```{r}
 phil.preds <- data.frame(Id=phil.test$SiteNum, Predicted = predict(boost1, newdata = phil.test))
+
+phil.preds$Predicted <- ifelse(phil.preds$Predicted == "no", FALSE, TRUE)
 
 write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive1.csv")
 ```
