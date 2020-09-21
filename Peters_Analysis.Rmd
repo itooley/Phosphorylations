@@ -166,6 +166,10 @@ tune.grid <- expand.grid(trials  = seq(5, 10, 1),
                         winnow  = FALSE,
                         cost  = seq(.5, 2, .5))
 
+tune.grid1 <- expand.grid(sigma = seq(0.1, 1, .1),
+                          C = seq(1, 5, 1),
+                          Weight = seq(1, 5, 1))
+
 tr.grid <-trainControl(method="repeatedcv",
                                        classProbs = TRUE,
                                        number=10,
@@ -174,11 +178,11 @@ tr.grid <-trainControl(method="repeatedcv",
 
 boost <- train(form=Response~., 
               data=(phil.train %>% select(-SiteNum)),
-              method = "C5.0Cost",
+              method = "svmRadialWeights",
               trControl=tr.grid,
               preProc = c("center", "scale", "pca"),
               metric = "F",
-              tuneGrid = tune.grid,
+              tuneGrid = tune.grid1,
               verbose = FALSE
               )
 beepr::beep()
@@ -218,8 +222,8 @@ write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive.csv")
 
 
 ```{r}
-tune.grid <- expand.grid(cost = seq(.5, 1.5, .05),
-                         weight = 3)
+tune.grid <- expand.grid(cost = seq(0, 5, .25),
+                         weight = 2)
 
 tr.grid <-trainControl(method="repeatedcv",
                                        classProbs = TRUE,
