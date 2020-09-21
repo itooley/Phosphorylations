@@ -166,9 +166,9 @@ tune.grid <- expand.grid(trials  = seq(5, 10, 1),
                         winnow  = FALSE,
                         cost  = seq(.5, 2, .5))
 
-tune.grid1 <- expand.grid(sigma = seq(0.1, 1, .1),
-                          C = seq(1, 5, 1),
-                          Weight = seq(1, 5, 1))
+tune.grid1 <- expand.grid(sigma = seq(0.5, 7, .05),
+                          C = seq(.5, 1.5, .5),
+                          Weight = 1)
 
 tr.grid <-trainControl(method="repeatedcv",
                                        classProbs = TRUE,
