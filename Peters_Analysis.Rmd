@@ -127,20 +127,7 @@ plotly::plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="m
 
 I want to create dummy variables for our Amino Acid type. Here I will also create different data frame with either consensus or the acid strands (PSSM, ANN, SVM). We will most likely only use the consensus coded data frames, but I guess it doesnt hurt to have the others for now i we want to test them.
 
-```{r}
-#Dummary Vars
-dumPhil <- dummyVars(Response~.-Set, data=phil)
-Phil_pro <- predict(dumPhil, newdata = phil) %>% as.data.frame() %>% bind_cols(., phil %>% select(-Set, -Response, -Consensus))
-Phil_con <- predict(dumPhil, newdata = phil) %>% as.data.frame() %>% bind_cols(., phil %>% select(-Set, -Response, -PSSM, -ANN, -SVM))
 
-#PreProcessing
-pcTranss <- preProcess(x=phil %>% select(-Response, -Consensus), method = "pca")
-pc_pro <- predict(pcTranss, newdata = phil)
-pcTranss <- preProcess(x=phil %>% select(-Response, -PSSM, -ANN, -SVM), method = "pca")
-pc_con <- predict(pcTranss, newdata = phil)
-
-
-```
 
 ```{r}
 plot_correlation(pc_con, type="continuous", 
@@ -155,20 +142,17 @@ plot_correlation(pc_pro, type="continuous",
 ```{r}
 phil$Response <- ifelse(phil$Response == 0 , "no", "yes")
 phil$Response <- as.factor(phil$Response)
-phil.train <- phil %>% filter(!is.na(Response)) %>% select(-Set)
-phil.test<- phil %>% filter(is.na(Response)) %>% select(-Set)
+phil.train <- phil %>% filter(!is.na(Response))
+phil.test<- phil %>% filter(is.na(Response))
 ```
 
 
 ```{r}
-tune.grid <- expand.grid(trials  = seq(5, 10, 1),
+tune.grid <- expand.grid(trials  = 20,
                         model  = "rules",
                         winnow  = FALSE,
-                        cost  = seq(.5, 2, .5))
+                        cost  = seq(.1, 1, .1))
 
-tune.grid1 <- expand.grid(sigma = seq(0.5, 7, .05),
-                          C = seq(.5, 1.5, .5),
-                          Weight = 1)
 
 tr.grid <-trainControl(method="repeatedcv",
                                        classProbs = TRUE,
@@ -177,12 +161,12 @@ tr.grid <-trainControl(method="repeatedcv",
                                        summaryFunction = prSummary)
 
 boost <- train(form=Response~., 
-              data=(phil.train %>% select(-SiteNum)),
-              method = "svmRadialWeights",
+              data=(phil.train %>% select(-SiteNum, -Set)),
+              method = "C5.0Cost",
               trControl=tr.grid,
               preProc = c("center", "scale", "pca"),
               metric = "F",
-              tuneGrid = tune.grid1,
+              #tuneGrid = tune.grid,
               verbose = FALSE
               )
 beepr::beep()
@@ -190,25 +174,12 @@ beepr::beep()
 plot(boost) 
 boost$bestTune
 boost$results
-```
 
-
-```{r}
 phil.preds <- data.frame(Id=phil.train$SiteNum, Predicted = predict(boost, newdata = phil.train))
 
-f_df1 <- as.data.frame(cbind(y_true = phil.train$Response, Id = phil.train$SiteNum))
-
-
-f_df2 <- phil.preds
-f_df2$Id <- as.integer(f_df2$Id)
-f_df2$Predicted <- as.integer(f_df2$Predicted)
-
-f_df1 <- f_df1 %>% left_join(f_df2)
-
-
-
-F1_Score(f_df1$y_true, f_df1$Predicted, positive = 1)
+F1_Score(phil.train$Response, phil.preds$Predicted, positive = "yes")
 ```
+
 
 
 ```{r}
@@ -222,8 +193,12 @@ write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive.csv")
 
 
 ```{r}
-tune.grid <- expand.grid(cost = seq(0, 5, .25),
-                         weight = 2)
+down_train <- downSample(x = phil.train[, -ncol(phil.train)],
+                         y = phil.train$Response)
+
+tune.grid <- expand.grid(kmax = c(9,10,11),
+                         distance = c(1,2),
+                         kernel = "optimal")
 
 tr.grid <-trainControl(method="repeatedcv",
                                        classProbs = TRUE,
@@ -232,12 +207,12 @@ tr.grid <-trainControl(method="repeatedcv",
                                        summaryFunction = prSummary)
 
 boost1 <- train(form=Response~., 
-              data=(phil.train %>% select(-SiteNum)),
-              method = "svmLinearWeights",
+              data=(down_train %>% select(-Class, -Set)),
+              method = "xgbLinear",
               trControl=tr.grid,
               preProc = c("center", "scale", "pca"),
               metric = "F",
-              tuneGrid = tune.grid,
+              #tuneGrid = tune.grid,
               verbose = FALSE
               )
 beepr::beep()
@@ -245,24 +220,12 @@ beepr::beep()
 plot(boost1) 
 boost1$bestTune
 boost1$results
-```
 
-```{r}
 phil.preds <- data.frame(Id=phil.train$SiteNum, Predicted = predict(boost1, newdata = phil.train))
 
-f_df1 <- as.data.frame(cbind(y_true = phil.train$Response, Id = phil.train$SiteNum))
-
-
-f_df2 <- phil.preds
-f_df2$Id <- as.integer(f_df2$Id)
-f_df2$Predicted <- as.integer(f_df2$Predicted)
-
-f_df1 <- f_df1 %>% left_join(f_df2)
-
-
-
-F1_Score(f_df1$y_true, f_df1$Predicted, positive = 1)
+F1_Score(phil.train$Response, phil.preds$Predicted, positive = "yes")
 ```
+
 
 
 
