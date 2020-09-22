@@ -1,19 +1,26 @@
 ---
-title: "Train"
+title: "14-3-3 Binding Sites"
 author: "Peters"
 date: "9/16/2020"
 output: html_document
 ---
-14-3-3 is a cancer causing protein that interacts with various other proteins in the body, caused by a protein modification called  "phosphorylation", which increases tumor growth. This analysis will help us find find these interaction points that may be susceptible to this protein modification.
+
+Data and analyses found at:
+https://github.com/itooley/Phosphorylations
+
+This was part of an InClass competition hosted through Kaggle.
+
+14-3-3 is a cancer causing protein that interacts with various other proteins in the body, caused by a protein modification called  *"phosphorylation"*, which increases tumor growth. This analysis will help us find find these interaction points that may be susceptible to this protein modification.
 
 >Our hypothesis is that 14-3-3-binding phosphorylation sites 1) occur in regions of high "intrinsic disorder" (you can think of disordered regions of proteins as more floppy and loose than structured regions, which tend to be rigid and well ordered); 2) occur within specific amino acid sequences; and 3) tend to be more frequently identified in unbiased mass spectrometry studies. So we'd predict that 14-3-3 binding phosphorylations, on average, will score higher for these features than the non-binding phopshorylations. -Kaggle Overview
 
 
-```{r}
+```{r chunk-name, results="hide"}
 library(tidyverse)
 library(DataExplorer)
 library(caret)
 library(MLmetrics)
+library(plotly)
 
 train <- read_csv("train.csv")
 test <- read_csv("test.csv")
@@ -29,12 +36,13 @@ phil$Response <- phil$Response %>% as.factor
 phil$SiteNum <- phil$SiteNum %>% as.factor
 head(phil)
 
-unique(phil$Amino.Acid)
 ```
 
-## Data Visualizaton
+## **Data Visualizaton**
 
 First we want to get to know our data, like if its numeric or categorical, and see the overall relationship our variables have with one another.
+
+We likewise want to see the distribution of binding sites in our data set. We notice that there is a huge *imbalance* of non-binding sites to binding sites. This brings up the **class imbalance problem.** This will be discussed in our model fitting section.
 
 ```{r}
 summary(phil)
@@ -53,28 +61,37 @@ So we see that out of training set, there aren't that many binding sites within 
 
 But for now we want talk about the high colinearity that exists in our data set. our **SVM**, **PSSM**, and **ANN** variable are various protein scores based on different sequencing while the **consensus** is a consensus amino acid score based on those ANN-SVM scores. Our PSSM and consensus are the only variables that has missing values, so we plan on filling in those missing values and then decided then what we can do to handle this issue.
 
-## Feature Engineering
+## **Feature Engineering**
 
-### Handling Missing values
+For this analysis, there was not a lot data cleaning or engineering we had to do to clean up this data set. There were some data points we had to fill in, which we will cover next.
+
+### **Handling Missing values**
 so what we noted before was that we only had missing values from our PSSM and consensus. As it turns out, they all exit in the same 870 rows (response is just the missing response from our test set.
 ```{r}
 head(phil[!is.na(phil$PSSM), ], 5)
 ```
-Since out three amino acids have a such a high colinearity between them, we want to be able to use regression imputation to fill those missing values from PSSM. Below we want to visualize this relationship to ensure that they are linear.
+Since out three amino acids have a such a high colinearity between them, we want to be able to use **regression imputation** to fill those missing values from PSSM. Below we want to visualize this relationship to ensure that they are linear. One of the thing my team and I tried to accomplish was using a different method to impute the missing PSSM values in our data set. We tried various models such as *gradient boosting*, *random forests*, and *KNN.* However, none of these options didn't give us greater predictive accuracy as the linear regression did (in terms of RMSE), so we stuck with the *linear regression.*
 
 ```{r}
-ggplot(data = phil, mapping=aes(x=SVM, PSSM, color = Response)) + geom_point() + ggtitle("SVM vs PSSM") + theme_classic()
-ggplot(data = phil, mapping=aes(x=ANN, PSSM, color = Response)) + geom_point() + ggtitle("ANN vs PSSM") + theme_classic()
-
-plotly::plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers")
-plotly::plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers", color = phil$Response)
+plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers", color = phil$Response, colors = c("#154733", "#FEE123")) %>% layout(title = "Relationship of our three proteins wiht Binding Sites before imputation",
+    scene = list(
+      xaxis = list(title = "ANN"),
+      yaxis = list(title = "SVM"),
+      zaxis = list(title = "PSSM")
+    ))
 ```
 
 
-### Stochastic Regression imputation for PSSM
+#### **Stochastic Regression imputation for PSSM**
+
+So we ran out linear model, and found the model to have an $R^2$ of $0.8546$ with a $p-value < 2.2e-16$ and $RMSE = .188$, giving me comfort in fill in in our NA's. Below I visualize again and highlight all of the values that were filled in.
 
 ```{r}
 summary(lmobj <- lm(PSSM~SVM+ANN, data = phil))
+
+RSS <- c(crossprod(lmobj$residuals))
+MSE <- RSS / length(lmobj$residuals)
+sqrt(MSE)
 
 PSSM.preds <- (predict(lmobj, newdata=(phil %>% filter(is.na(PSSM))))+
                   rnorm(sum(is.na(phil$PSSM)), 0, sigma(lmobj)))
@@ -85,32 +102,73 @@ phil <- phil %>%
 cat("\nJust to ensure that we filled them all in:\n sum of NA's is ", sum(is.na(phil$PSSM)))
 ```
 
-So we ran out linear model, and found the model to have an $R^2$ of $0.8546$ with a $p-value < 2.2e-16$, giving me comfort in fill in in our NA's. Below I visualize again and highlight all of the values that were filled in.
+Below was where I was trying to impute PSSM with other models, but nothing gave me an RPMSE of less than .19 so I decided to stick to the linear model above.
 
 ```{r}
-ggplot(data = phil, mapping=aes(x=SVM, PSSM, color = (is.na(phil$Consensus)))) + geom_point() + labs(color = "Imputated Values") + ggtitle("SVM vs PSSM after Imputation") + theme_classic()
+# imp_phil <- phil[!is.na(phil$PSSM),]
+# 
+# tune.grid <- expand.grid(kmax = seq(15, 30, 1),
+#                          distance  = 2,
+#                          kernel = "optimal")
+# 
+# tr.grid <-trainControl(method="repeatedcv",
+#                        number=10,
+#                        repeats = 5)
+# 
+# forest <- train(form=PSSM~., 
+#               data=(imp_phil %>% select(-SiteNum, -Set, -Response, -Consensus)),
+#               method = "kknn",
+#               trControl=tr.grid,
+#               preProc = c("center", "scale", "pca"),
+#               tuneGrid = tune.grid,
+#               verbose = FALSE
+#               )
+# beepr::beep()
+# 
+# plot(forest) 
+# forest$bestTune
+# forest$results
+```
+
+Taking our model and imputing on our missing values
+
+```{r}
+PSSM.preds <- (predict(lmobj, newdata=(phil %>% filter(is.na(PSSM)))))
+
+phil <- phil %>%
+  mutate(PSSM=replace(PSSM, is.na(PSSM), PSSM.preds))
+```
+
+I was curious to see how well our model fit the missing values, so below we have a few different plots to see how where those missing points got filled in and see the new clustering of binding sites on our proteins.
+
+```{r}
+plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers", color = (is.na(phil$Consensus)), colors = c("#154733", "#FEE123")) %>% layout(title = "Imputed Values",
+    scene = list(
+      xaxis = list(title = "ANN"),
+      yaxis = list(title = "SVM"),
+      zaxis = list(title = "PSSM")
+    ))
 
 
-ggplot(data = phil, mapping=aes(x=ANN, PSSM, color = (is.na(phil$Consensus)))) + geom_point() + labs(color = "Imputated Values")  + ggtitle("ANN vs PSSM after Imputation") + theme_classic()
+plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers", color = phil$Response, colors = c("#154733", "#FEE123")) %>% layout(title = "Relationship of our three proteins wiht Binding Sites after imputation",
+    scene = list(
+      xaxis = list(title = "ANN"),
+      yaxis = list(title = "SVM"),
+      zaxis = list(title = "PSSM")
+    ))
 
+```
 
+We still notice some co-linearity in our data set, but we will take care of that in our pre-processing.
 
+```{r}
 plot_correlation(phil, type="continuous", 
                  cor_args=list(use="pairwise.complete.obs"))
+
+ggplot(data = phil, mapping=aes(x = Response, y =Consensus)) + geom_boxplot() + theme_classic() + ggtitle("Distribution of Binding Sites Before Imputation (NA is our test set)") + theme_classic()
 ```
 
-
-```{r}
-plotly::plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers", color = (is.na(phil$Consensus)))
-plotly::plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers", color = phil$Response)
-```
-
-```{r}
-ggplot(data = phil, mapping=aes(x = Response, y =Consensus)) + geom_boxplot() + theme_classic() #+ labs(color = "Imputated Values")  + ggtitle("ANN vs PSSM after Imputation") + theme_classic()
-```
-
-
-Now we will impputae the consensus score with a regression model.
+The owner of this data was using consensus as an *average score* of our three proteins, so we will do the same and fill all of our missing consensus scores with the average of *ANN*, *SVM*, and our newly imputed *PSSM* scores.
 
 ```{r}
 phil$Consensus <- (phil$PSSM + phil$SVM + phil$ANN) / 3
@@ -118,27 +176,26 @@ phil$Consensus <- (phil$PSSM + phil$SVM + phil$ANN) / 3
 cat("\nJust to ensure that we filled them all in:\n sum of NA's is ", sum(is.na(phil$Consensus)))
 
 ggplot(data = phil, mapping=aes(x=Consensus)) + geom_histogram(bins = 15) + ggtitle("Distribution of Consensus scores") + theme_classic()
-plotly::plot_ly(x=phil$SVM, y=phil$ANN, z=phil$PSSM, type = "scatter3d", mode="markers", color = phil$Response)
+ggplot(data = phil, mapping=aes(x = Response, y = Consensus)) + geom_boxplot() + theme_classic() + ggtitle("Distribution of Binding Sites After Imputation (NA is our test set)") + theme_classic()
 
+sapply(phil, function(x) sum(is.na(x)))
 ```
 
 
-### One-Hot Encoding
+## **Model Fitting**
 
-I want to create dummy variables for our Amino Acid type. Here I will also create different data frame with either consensus or the acid strands (PSSM, ANN, SVM). We will most likely only use the consensus coded data frames, but I guess it doesnt hurt to have the others for now i we want to test them.
+#### **Class Imbalance**
+As stated, before we face a large class imbalance problem. In our training set, we have 2856 non-binding sites and only 128 binding sets. So what does that mean in terms of fitting our model?
 
+Well, this problem is usually solved by finding a model that is more worried in their false negatives as they are getting a positive prediction. That is, the model is more worried about minimizing the number of binding they incorrectly guess as a non-binding site. Whereas typical models want to find the best positive rate possible, without worrying much about our false negative or false positive rate.
 
+So how can we do this?
 
-```{r}
-plot_correlation(pc_con, type="continuous", 
-                 cor_args=list(use="pairwise.complete.obs"))
+#### **Cost-Sensitive Models**
 
-plot_correlation(pc_pro, type="continuous", 
-                 cor_args=list(use="pairwise.complete.obs"))
-```
+So, in terms of fitting a model to this type of data, my research pointed me to a cost sensitive model. Cost-sensitive models are built specifically for the class imbalance problems and will take into account the false-negative rate.
 
-## Model Fitting
-
+Below, we are making some small changes to our data frame to be able to use it in Caret.
 ```{r}
 phil$Response <- ifelse(phil$Response == 0 , "no", "yes")
 phil$Response <- as.factor(phil$Response)
@@ -146,18 +203,18 @@ phil.train <- phil %>% filter(!is.na(Response))
 phil.test<- phil %>% filter(is.na(Response))
 ```
 
+Our first model below is using Caret's **Cost-Sensitive C5.0** model as it was the best classification model that I found in maximizing our F-Score.
 
 ```{r}
-tune.grid <- expand.grid(trials  = 50,
+tune.grid <- expand.grid(trials  = 99,
                         model  = "tree",
                         winnow  = FALSE,
-                        cost  = .5)
-
+                        cost  = .1)
 
 tr.grid <-trainControl(method="repeatedcv",
                       classProbs = TRUE,
                       number=10,
-                      repeats = 5,
+                      repeats = 3,
                       summaryFunction = prSummary)#,
                       #sampling = "smote")
 
@@ -172,7 +229,7 @@ boost <- train(form=Response~.,
               )
 beepr::beep()
 
-plot(boost) 
+#plot(boost) 
 boost$bestTune
 boost$results
 
@@ -181,7 +238,7 @@ phil.preds <- data.frame(Id=phil.train$SiteNum, Predicted = predict(boost, newda
 F1_Score(phil.train$Response, phil.preds$Predicted, positive = "yes")
 ```
 
-
+We fit our model to the test set and save it to an CSV if I am satified with the results from above.
 
 ```{r}
 phil.preds <- data.frame(Id=phil.test$SiteNum, Predicted = predict(boost, newdata = phil.test))
@@ -191,16 +248,24 @@ phil.preds$Predicted <- ifelse(phil.preds$Predicted == "no", FALSE, TRUE)
 write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive.csv")
 ```
 
+______________________________________________________________________
 
+#### **Sub-sampling techniques**
+
+Likewise, another method to fix class imbalance is to synthesize a data set that:
+- oversamples (randomly sampling more rows of our minority class to equal the length of the majority class)
+- undersamples (randomly sample our majority class to be the same size as the minority)
+- is a hybrid of both (randomly sample both classes until theu meet in between in terms of class length)
+
+Using these techniques, we no longer have to worry about class imbalance because *there is no imbalance* between the minority and majority for other models to look over.
+
+Caret allows you to use these techniques(down, up, and two hybrids; Rose and Smote) within their *trainControl.* So we went ahead and used the smote method along with a gradient boosting model to see the predictive accuracy of these sampling techniques. We found this very useful, informative, and interesting, but we could not get the results we were hoping for from this analysis.
 
 ```{r}
-down_train <- downSample(x = phil.train[, -ncol(phil.train)],
-                         y = phil.train$Response)
-
-tune.grid <- expand.grid(n.trees = c(125, 150, 175),
-                         interaction.depth = c(4,5,6),
-                         n.minobsinnode = c(8, 9, 10, 11, 12),
-                         shrinkage = c(.09, .1, .08))
+tune.grid <- expand.grid(n.trees = 500,
+                         interaction.depth = 3,
+                         n.minobsinnode = 10,
+                         shrinkage = .1)
 
 tr.grid <-trainControl(method="repeatedcv",
                        classProbs = TRUE,
@@ -215,12 +280,12 @@ boost1 <- train(form=Response~.,
               trControl=tr.grid,
               preProc = c("center", "scale", "pca"),
               metric = "F",
-              #tuneGrid = tune.grid,
+              tuneGrid = tune.grid,
               verbose = FALSE
               )
 beepr::beep()
 
-plot(boost1) 
+#plot(boost1)
 boost1$bestTune
 boost1$results
 
@@ -229,8 +294,7 @@ phil.preds <- data.frame(Id=phil.train$SiteNum, Predicted = predict(boost1, newd
 F1_Score(phil.train$Response, phil.preds$Predicted, positive = "yes")
 ```
 
-
-
+Saving our sampling gbm model to a csv if we like the results.
 
 ```{r}
 phil.preds <- data.frame(Id=phil.test$SiteNum, Predicted = predict(boost1, newdata = phil.test))
@@ -241,3 +305,15 @@ write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive1.csv")
 ```
 
 
+## **Conclusion and Results**
+
+All in all, we found this data set very challenging in a sens ethat it was our first time working with *class imbalance.* We handled this by using a cost sensitive model and sub-sampling techniques to fit our data within other classification models.
+
+The highest F-score we received using these methods were:
+Cost Sensitive: .763
+Sub-sampling = .657
+
+
+We found the cost-sensitive model a little more limiting than our sampling techniques, btu the results showed, leaving us to sticking with that model.
+
+Our team finished in 2nd place with an F-score on our test set of .74576.
