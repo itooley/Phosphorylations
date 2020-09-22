@@ -148,16 +148,15 @@ phil.test<- phil %>% filter(is.na(Response))
 
 
 ```{r}
-tune.grid <- expand.grid(trials  = 50,
+tune.grid <- expand.grid(trials  = seq(80, 100, 1),
                         model  = "tree",
-                        winnow  = FALSE,
-                        cost  = .5)
-
+                        winnow  = c(TRUE, FALSE),
+                        cost  = .1)
 
 tr.grid <-trainControl(method="repeatedcv",
                       classProbs = TRUE,
                       number=10,
-                      repeats = 5,
+                      repeats = 3,
                       summaryFunction = prSummary)#,
                       #sampling = "smote")
 
