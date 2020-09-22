@@ -148,17 +148,18 @@ phil.test<- phil %>% filter(is.na(Response))
 
 
 ```{r}
-tune.grid <- expand.grid(trials  = 20,
-                        model  = "rules",
+tune.grid <- expand.grid(trials  = 50,
+                        model  = "tree",
                         winnow  = FALSE,
-                        cost  = seq(.1, 1, .1))
+                        cost  = .5)
 
 
 tr.grid <-trainControl(method="repeatedcv",
-                                       classProbs = TRUE,
-                                       number=10,
-                                       repeats = 5,
-                                       summaryFunction = prSummary)
+                      classProbs = TRUE,
+                      number=10,
+                      repeats = 5,
+                      summaryFunction = prSummary)#,
+                      #sampling = "smote")
 
 boost <- train(form=Response~., 
               data=(phil.train %>% select(-SiteNum, -Set)),
@@ -166,7 +167,7 @@ boost <- train(form=Response~.,
               trControl=tr.grid,
               preProc = c("center", "scale", "pca"),
               metric = "F",
-              #tuneGrid = tune.grid,
+              tuneGrid = tune.grid,
               verbose = FALSE
               )
 beepr::beep()
@@ -196,19 +197,21 @@ write_csv(x=phil.preds, path="./Peters_Submission_Cost_Sensitive.csv")
 down_train <- downSample(x = phil.train[, -ncol(phil.train)],
                          y = phil.train$Response)
 
-tune.grid <- expand.grid(kmax = c(9,10,11),
-                         distance = c(1,2),
-                         kernel = "optimal")
+tune.grid <- expand.grid(n.trees = c(125, 150, 175),
+                         interaction.depth = c(4,5,6),
+                         n.minobsinnode = c(8, 9, 10, 11, 12),
+                         shrinkage = c(.09, .1, .08))
 
 tr.grid <-trainControl(method="repeatedcv",
-                                       classProbs = TRUE,
-                                       number=10,
-                                       repeats = 5,
-                                       summaryFunction = prSummary)
+                       classProbs = TRUE,
+                       number=10,
+                       repeats = 5,
+                       summaryFunction = prSummary,
+                       sampling = "smote")
 
 boost1 <- train(form=Response~., 
-              data=(down_train %>% select(-Class, -Set)),
-              method = "xgbLinear",
+              data=(phil.train %>% select(-SiteNum, -Set)),
+              method = "gbm",
               trControl=tr.grid,
               preProc = c("center", "scale", "pca"),
               metric = "F",
