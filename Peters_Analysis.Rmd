@@ -206,9 +206,9 @@ phil.test<- phil %>% filter(is.na(Response))
 Our first model below is using Caret's **Cost-Sensitive C5.0** model as it was the best classification model that I found in maximizing our F-Score.
 
 ```{r}
-tune.grid <- expand.grid(trials  = 99,
+tune.grid <- expand.grid(trials  = seq(80, 100, 1),
                         model  = "tree",
-                        winnow  = FALSE,
+                        winnow  = c(TRUE, FALSE),
                         cost  = .1)
 
 tr.grid <-trainControl(method="repeatedcv",
